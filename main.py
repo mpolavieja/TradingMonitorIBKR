@@ -185,6 +185,7 @@ def notifyShortableShares(tickerSet: set[Ticker])-> None:
         print(f"[notifyShortableShares] {datetime.datetime.now()} - Unexpected error: {e}")
 
 
+
 def suscribeMarketData()-> None:
     global tickers
     global app
