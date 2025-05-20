@@ -1,0 +1,19 @@
+# Sensitive files
+credentials_Google_NF.json
+token.pickle
+
+#Conf files
+config.json
+symbols.json
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+
+# log files
+logs/
+*.log
+
+# junk files
+desktop.ini

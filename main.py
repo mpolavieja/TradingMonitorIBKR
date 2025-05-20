@@ -1,0 +1,359 @@
+''' 
+                  **  Main module for Interactive Brokers monitor **
+
+  IMPORTANT: In order to receive manual orders, the client_id must be set to 0 
+  Setting Master client_Id to any number different than zero will redirect events from
+  other API clients but NOT manual orders!!
+  see https://interactivebrokers.github.io/tws-api/order_submission.html#order_status 
+
+  newOrderEvent is NOT triggered when a manual order is submitted. Use onOrderStatus instead
+
+'''
+
+# Standard libraries
+import sys
+import json
+import datetime
+from math import isnan 
+import threading
+import asyncio
+import os
+import signal
+from typing import Dict
+
+
+
+# Local libraries. We need to retrieve the project path from the config file before importing
+def read_config():
+    with open("config.json", 'r') as file:
+        config_data = json.load(file)   
+    return config_data
+
+config_data = read_config()
+sys.path.append(config_data["project_path"])
+from gui import ShortAvailabilityChecker, tk
+from ib_async import util, CommissionReport, IB
+from src.brokers.interactive_brokers import Stock, InteractiveBrokers, IbkrTrade, IbkrFill, Ticker
+import src.interfaces.telegram as telegram
+from src.interfaces.email_lib import sendFromGmail
+from src.core.custom_types import BrokerConfig
+from src.system.dual_logging import LazyLogger
+from src.data_providers.data_manager import DataManager
+from src.data_providers.ibkr_dataprovider import IbkrDataProvider
+from src.core.custom_types import Instrument
+
+from portfolio_monitor import PortfolioTracker
+
+logger = LazyLogger.getLogger("IbkrMonitor")
+
+shortableSharesDict: Dict[str, float]  = {}
+# Global variables
+RECONNECT_SECONDS: int = 50
+CALLBACK_SECONDS: int = 20
+callbackCounter: int = 0
+nanCounterDict: Dict[str, int] = {}
+broker: InteractiveBrokers
+tickers = {}
+portfolioTracker: PortfolioTracker
+
+
+def onDisconnected():
+    global broker
+    broker.connected = False
+    if broker.tryToReconnect:
+        reConnect(broker)
+ 
+
+def reConnect(brokerClient:InteractiveBrokers)-> bool:
+    try:  
+        brokerClient.reconnecting = True
+        disconnectionTime = datetime.datetime.now()
+        waitSeconds = 5
+        while not brokerClient.connected and brokerClient.tryToReconnect:               
+            brokerClient.disconnect(tryToReconnect= True)
+            # It is important to fill all the parameters when trying to reconnect!!
+            # We first try a fast reconnection, if not successful, then we give enough timeout and 
+            # wait seconds to avoid trying to reconnect when reconnecting is already succeeding
+            brokerClient.IbkrRequest.sleep(waitSeconds) 
+            brokerClient.IbkrRequest.connectSyncSimple(clientId= 0)          
+            waitSeconds = RECONNECT_SECONDS
+            brokerClient.IbkrRequest.sleep(0)           
+            if not brokerClient.connected:
+                logger.error(f'>>Failed to connect to Interactive Brokers. Retrying in {waitSeconds} seconds...')
+                continue                        
+            disconnectionDuration = datetime.datetime.now()- disconnectionTime
+            logger.info(f'Reconnected to Interactive Brokers after {int(disconnectionDuration.total_seconds())} seconds')
+            brokerClient.reconnecting = False
+            suscribeMarketData()
+        return True
+            
+    except Exception as e:
+        logger.info(f'Error: {e}')
+        return False
+
+
+def notifyCallBackStatus():
+    global callbackCounter
+    callbackCounter += 1
+    current_time = datetime.datetime.now().time()
+    if current_time.hour == 9 and current_time.minute == 50 and callbackCounter > 30:
+        logger.info(f"Call back function running. It is {current_time}")
+        callbackCounter = 0
+  
+
+# This is the best event to capture order events. NewOrderEvent does not seem to trigger on manual orders and does
+# not seem to exist in IB native API.  onOpenOrder does not seem to inform correctly about the status of the order 
+def onOrderStatus(trade: IbkrTrade):
+    if trade.orderStatus.status != "Submitted":
+       return
+       
+    instrumentType = "contracts" if trade.contract.secType in ["FUT", "OPT"] else "shares"
+    msg = f"Sent order to {trade.order.action} {int(trade.order.totalQuantity)} {trade.contract.localSymbol} {instrumentType} at {trade.order.lmtPrice}"
+    telegram.send_to_telegram(msg)
+    logger.info(msg)
+
+
+def buildTradeMessage(trade: IbkrTrade, commission: float):
+    execution = trade.fills[-1].execution
+    msg = f"{execution.side} {int(execution.shares)} shares on {trade.contract.localSymbol} at {execution.price}. Commission: {commission}"
+    return msg
+
+
+# fill.commissionReport.commission no parece funcionar bien.  Devuelve 0.0
+def onExecDetails(trade: IbkrTrade, fill:IbkrFill):    
+    msg = buildTradeMessage(trade, fill.commissionReport.commission)    
+    telegram.send_to_telegram(msg)
+    
+    # email_lib.sendFromGmail(["m.garcia@newfrontier.es", "mpolavieja@gmail.com"], "Ejecución New Frontier", msg)
+    logger.info(msg)  
+    pass
+
+
+# onComssionReportEvent seems the most complete fill event 
+# as it provides both the trade data and the commission data
+# Problem is it triggers again all recent fills when TWS is restarted
+# so olds events need to be filtered 
+def onCommission(trade: IbkrTrade, fill: IbkrFill , report:CommissionReport):
+    msg = buildTradeMessage(trade, report.commission)    
+    fillTime = fill.time
+    timeTresholdMinutes = 2
+    if datetime.datetime.now(datetime.timezone.utc) - fillTime > datetime.timedelta(minutes = timeTresholdMinutes):
+      logger.info(f"Se ha recibido el siguiente evento de hace {timeTresholdMinutes} minutos o más. No se notificará por mail ni telegram:")
+      logger.info (msg)
+      return    
+    
+    # PENDIENTE EJECUCIONES PARCIALES ¿ENVIAMOS SOLO CUANDO SON COMPLETAS? Y SI NUNCA SE COMPLETAN? RETENEMOS LAS PARCIALES X TIEMPO?
+    telegram.send_to_telegram(msg)
+    sendFromGmail(["m.garcia@newfrontier.es", "mpolavieja@gmail.com"], "Ejecución New Frontier", msg)
+    logger.info(msg)  
+    pass    
+
+
+def notifyShortableShares(tickerSet: set[Ticker])-> None:    
+    global shortableSharesDict
+    global nanCounterDict
+    ticker: Ticker 
+
+    try:         
+        for ticker in tickerSet:            
+            if ticker.contract is None:
+                continue
+            symbol = ticker.contract.symbol                                     
+            shortableShares = ticker.shortableShares       
+            #print(f"Debug. Market data type: {ticker.marketDataType}. Symbol: {symbol}. Shortable shares: {shortableShares}")
+            if isnan(shortableShares): 
+                nanCounterDict[symbol] = nanCounterDict.get(symbol, 0) + 1
+            else:
+                shortableShares = 0 if shortableShares > 2_147_483_000 else shortableShares
+
+            if nanCounterDict[symbol] > 10:
+                nanCounterDict[symbol] = 0
+                shortableShares = 0           
+
+            prevShortableShares = shortableSharesDict.get(symbol, 0)            
+            if (prevShortableShares != 0 and shortableShares == 0) or \
+               (prevShortableShares <= 0 and shortableShares > 0):
+                msg = f"Hay {int(shortableShares):,} acciones para préstamo en {symbol}"
+                telegram.send_to_telegram(msg)
+                logger.info(msg)
+            if not isnan(shortableShares):
+                shortableSharesDict[symbol] = shortableShares
+                
+    except asyncio.CancelledError as e:
+        print(f"[notifyShortableShares] {datetime.datetime.now()} - Asyncio error Error, probably related to ib.sleep(): {e}")
+    except Exception as e:
+        print(f"[notifyShortableShares] {datetime.datetime.now()} - Unexpected error: {e}")
+
+
+def suscribeMarketData()-> None:
+    global tickers
+    global app
+    global broker
+    global ibkrData
+    logger.info("Suscribing Market Data...")
+    if app is None:
+        logger.error("Not possible to suscribe Market Data. Error initializing GUI")
+        return
+
+    symbols = app.readSymbols()    
+    try:
+        for symbol in symbols:
+            contract = Stock(symbol, "SMART", "USD")
+            broker.IbkrRequest.tradingClient.reqMarketDataType(3)
+            tickers[symbol] = broker.IbkrRequest.tradingClient.reqMktData(contract, genericTickList= "236")  
+        broker.IbkrRequest.tradingClient.sleep(6)
+    except ConnectionError as e:
+        logger.error(f"Error suscribing Market Data: {e}")
+
+def initshortableSharesDict(app: ShortAvailabilityChecker)-> None:
+    global shortableSharesDict
+
+    symbols = app.readSymbols()
+    for symbol in symbols:
+        shortableSharesDict[symbol] = -1 
+
+
+def trackPortfolio(rtData: DataManager, updateSeconds: int = 20)-> None:
+    global portfolioTracker
+    global broker
+    global dataManager
+   
+    currentTime = datetime.datetime.now()
+    if (currentTime - portfolioTracker.lastPortfolioTime).total_seconds() < updateSeconds:
+        return
+    logger.info(">>refreshing tickers...")
+    portfolioTracker.refreshTickerDictionary(broker, rtData)
+    logger.info(">>Updating portfolio prices...")
+    if currentTime.hour == 22 and currentTime.minute <= 2:
+        dataList = portfolioTracker.update(rtData,close = True)
+    else:
+        dataList = portfolioTracker.update(rtData,close = False)
+
+    logger.info(">>Updating Google Sheets...")
+    portfolioTracker.writeToGoogleSheets(dataList)
+    portfolioTracker.lastPortfolioTime = currentTime
+
+
+
+# This is the schedulded callback funcion
+# TODO: refresh symbols on the GUI 
+def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> bool:   
+    
+    global app 
+    
+    notifyCallBackStatus()   
+    
+    '''
+    if not brokerClient.tryToReconnect:
+        return False    
+    
+    if not brokerClient.connected and not brokerClient.reconnecting:
+        brokerClient.connected = reConnect(brokerClient)    
+        return False
+    
+    if brokerClient.RequestClient is None:
+        brokerClient.connected = reConnect(brokerClient)
+        return False
+    '''
+    trackPortfolio(rtData)
+
+    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
+    brokerClient.IbkrRequest.tradingClient.schedule(nextRunTime, checkConnection, brokerClient, rtData) 
+    
+    if app is None:
+        logger.error("Error checking connection. GUI (app) not initialized")
+        return False
+    
+    if app.checkCallBack:
+        app.checkCallBack = False
+        logger.error( f"CallBack is executing correctly at {datetime.datetime.now()}")
+    return True
+
+
+def instrumentsToTrack(broker: InteractiveBrokers)-> list[Instrument]:
+    if broker.RequestClient is None:
+        return []
+    positions = broker.RequestClient.fetchPositionsOLD()
+    instrumentList: list[Instrument] = []
+    for position in positions:
+        instrumentList.append(position.instrument)
+        underlying = ""
+        if "underlying" in position.info:
+            underlying = position.info["underlying"]
+        if underlying != "" and position.instrument.instrumentType =="OPT":
+            instrumentList.append(Instrument(position.info["underlying"]))
+    return instrumentList
+
+
+def main(): 
+    global broker, portfolioTracker, app, ibkrData, dataManager
+
+    print("")    
+  
+    logger.info("Starting IBKR Monitor....") 
+
+    # The following line is mandatory in order to be able to automatically reconnect
+    util.patchAsyncio()
+    util.sleep(1)
+    
+    ibkrConfig = BrokerConfig(name="IBKR", port=7496, clientID=0, host="127.0.0.1")
+    broker = InteractiveBrokers.initWithoutRiskManager(ibkrConfig)
+    broker.IbkrRequest.connectSyncSimple()
+    if broker.RequestClient is None:
+        print("Error initializing Interactive Brokers")
+        return
+    dataManager= DataManager()
+    ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
+    dataManager.addDataProvider(ibkrData)
+  
+    instrumentList = instrumentsToTrack(broker)
+    dataManager.start(instrumentList)
+
+    portfolioTracker = PortfolioTracker()
+   
+    broker.EventClient.eventClient.execDetailsEvent += onExecDetails            #type: ignore attribute not declared in broker abstract class
+    broker.EventClient.eventClient.disconnectedEvent += onDisconnected          #type: ignore attribute not declared in broker abstract class
+    broker.EventClient.eventClient.orderStatusEvent += onOrderStatus            #type: ignore attribute not declared in broker abstract class    
+    broker.EventClient.eventClient.commissionReportEvent += onCommission        #type: ignore attribute not declared in broker abstract class 
+    #broker.EventClient.eventClient.pendingTickersEvent += notifyShortableShares #type: ignore attribute not declared in broker abstract class   
+
+    # Run the GUI in a separate thread
+    logger.info ("Starting GUI....")
+    
+    gui_thread = threading.Thread(target=main_gui, daemon=True)
+    gui_thread.start()
+
+    broker.RequestClient.sleepIBKR(2)
+
+    suscribeMarketData()
+
+    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
+    broker.RequestClient.tradingClient.schedule(nextRunTime, checkConnection, broker, dataManager)
+    broker.RequestClient.run()
+
+
+def main_gui():   
+    global app, broker
+    
+    def on_close():
+        broker.tryToReconnect = False
+        broker.disconnect()
+        master.destroy() 
+        # sys.exit() does not work, so we raise SIGINT to stop the main thread
+        os.kill(os.getpid(), signal.SIGINT)
+            
+    master =  tk.Tk()
+    app = ShortAvailabilityChecker(master)
+    initshortableSharesDict(app)
+    master.protocol("WM_DELETE_WINDOW", on_close)
+    master.mainloop() 
+
+                        
+
+if __name__ == "__main__":    
+    app = None
+   
+
+    main()
+    
+
