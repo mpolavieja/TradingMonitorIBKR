@@ -139,6 +139,10 @@ class PortfolioTracker():
                 return 
             positions = ibkr.RequestClient.fetchPositionsOLD()   
             
+            if not positions:
+                logger.info("No positions found in the portfolio. Creating empty portfolio tracker.")
+                return
+
             if verbose:
                 logger.info("Fetching positions to create  portfolio tracker")
                 
@@ -221,19 +225,6 @@ class PortfolioTracker():
 
 def test() -> None:
     portfolioTracker = PortfolioTracker()
-
-    ibkrConfig = BrokerConfig(name="IBKR", port=7496, clientID=0, host="127.0.0.1")
-
-    ibkr = InteractiveBrokers.initWithoutRiskManager(ibkrConfig)
-    ibkr.IbkrRequest.connectSyncSimple(host= "127.0.0.1", port= 7496, clientId= 0)
-    dataManager = DataManager()
-    dataManager.addDataProvider("IBKR", ibkr.IbkrRequest)
-
-    while True:        
-        portfolioTracker.refreshTickerDictionary(ibkr, ibkrData)
-        dataList = portfolioTracker.update(ibkrData, close = True)   
-        portfolioTracker.writeToGoogleSheets(dataList)
-        ibkr.IbkrRequest.tradingClient.sleep(10)    
 
 if __name__ == "__main__":
     test()
