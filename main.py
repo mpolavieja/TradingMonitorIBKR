@@ -36,11 +36,11 @@ from ib_async import util, CommissionReport, IB
 from src.brokers.interactive_brokers import Stock, InteractiveBrokers, IbkrTrade, IbkrFill, Ticker
 import src.interfaces.telegram as telegram
 from src.interfaces.email_lib import sendFromGmail
-from src.core.custom_types import BrokerConfig
+from src.core.custom_types import BrokerConfig, Position, Portfolio, Instrument
 from src.system.dual_logging import LazyLogger
 from src.data_providers.data_manager import DataManager
 from src.data_providers.ibkr_dataprovider import IbkrDataProvider
-from src.core.custom_types import Instrument
+
 
 from portfolio_monitor import PortfolioTracker
 
@@ -274,15 +274,17 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> boo
 def instrumentsToTrack(broker: InteractiveBrokers)-> list[Instrument]:
     if broker.RequestClient is None:
         return []
-    positions = broker.RequestClient.fetchPositionsOLD()
     instrumentList: list[Instrument] = []
-    for position in positions:
-        instrumentList.append(position.instrument)
-        underlying = ""
-        if "underlying" in position.info:
-            underlying = position.info["underlying"]
-        if underlying != "" and position.instrument.instrumentType =="OPT":
-            instrumentList.append(Instrument(position.info["underlying"]))
+    currentPositions: list[Position] = []
+    portfolio = broker.RequestClient.fetchPositions(reqPositions= True)
+    for position in portfolio.positions.values():
+        currentPositions.append(position)
+        instrumentList.append(position.instrument)    
+    
+    underlyingSymbols = PortfolioTracker.getUnderlyings(currentPositions)
+    for symbol in underlyingSymbols:
+        instrumentList.append(Instrument(symbol))
+    
     return instrumentList
 
 
@@ -303,6 +305,8 @@ def main():
     if broker.RequestClient is None:
         print("Error initializing Interactive Brokers")
         return
+
+
     dataManager= DataManager()
     ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
     dataManager.addDataProvider(ibkrData)

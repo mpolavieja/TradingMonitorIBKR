@@ -23,7 +23,7 @@ sys.path.append(config_data["project_path"])
 from src.interfaces.google_sheets_interface import GoogleSheetsInterface, connectToGoogleSheets
 from src.brokers.interactive_brokers import InteractiveBrokers
 from src.data_providers.data_manager import DataManager
-from src.core.custom_types import BrokerConfig, Instrument
+from src.core.custom_types import BrokerConfig, Instrument, Position, Portfolio
 from src.interfaces.telegram import send_to_telegram
 
 
@@ -161,6 +161,15 @@ class PortfolioTracker():
             msg = f"Method PortfolioTracker.create. Timeout error: {e}"
             logger.error(msg)
 
+    @staticmethod
+    def getUnderlyings(positions: List[Position]) -> List[str]:
+
+        underlyings: List[str] = []
+        for position in positions:
+            if position.instrument.underlyingSymbol != "":
+                underlyings.append(position.instrument.underlyingSymbol)
+        return underlyings
+    
     
     def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager) -> None:
         """
@@ -178,23 +187,21 @@ class PortfolioTracker():
             self.create(ibkr, rtData, True)
             return
         
-        currentPositions = ibkr.RequestClient.fetchPositionsOLD()        
-        
-        currentSymbols = {position.symbol for position in currentPositions}
-        currentSymbols.update({position.info["underlying"] for position in currentPositions if position.info["underlying"]})
-        currentSymbols.add("M6EM5")
+        portfolio: Portfolio = ibkr.RequestClient.fetchPositions(reqPositions= True)        
+        currentSymbols = list(portfolio.positions.keys())
+        currentPositions = list(portfolio.positions.values())
+        underlyingSymbols = self.getUnderlyings(currentPositions)
+        currentSymbols.extend(underlyingSymbols)
         
         # Add new items
-        for position in currentPositions:
-            if position.symbol not in self.tickerDictionary:
-                self.tickerDictionary[position.symbol] = rtData.providers["IBKR"].getTicker(position.symbol)
-                self.portfolioPrices[position.symbol] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
-            if position.info["underlying"] and (position.info["underlying"] not in self.tickerDictionary):
-                self.tickerDictionary[position.info["underlying"]] = rtData.providers["IBKR"].getTicker(position.symbol)
-                self.portfolioPrices[position.info["underlying"]] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}           
+        for symbol in currentSymbols:
+            if symbol not in self.tickerDictionary:
+                self.tickerDictionary[symbol] = rtData.providers["IBKR"].getTicker(symbol)
+                self.portfolioPrices[symbol] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
+            
         
         # Remove items that are no longer in the portfolio
-        symbolsToRemove = set(self.tickerDictionary.keys()) - currentSymbols
+        symbolsToRemove = set(self.tickerDictionary.keys()) - set(currentSymbols)
         for symbol in symbolsToRemove:
             del self.tickerDictionary[symbol]
             del self.portfolioPrices[symbol]
