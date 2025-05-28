@@ -276,7 +276,7 @@ def instrumentsToTrack(broker: InteractiveBrokers)-> list[Instrument]:
         return []
     instrumentList: list[Instrument] = []
     currentPositions: list[Position] = []
-    portfolio = broker.RequestClient.fetchPositions(reqPositions= True)
+    portfolio = broker.RequestClient.fetchPositions()
     for position in portfolio.positions.values():
         currentPositions.append(position)
         instrumentList.append(position.instrument)    

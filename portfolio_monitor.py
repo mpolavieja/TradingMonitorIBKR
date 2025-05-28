@@ -187,7 +187,7 @@ class PortfolioTracker():
             self.create(ibkr, rtData, True)
             return
         
-        portfolio: Portfolio = ibkr.RequestClient.fetchPositions(reqPositions= True)        
+        portfolio: Portfolio = ibkr.RequestClient.fetchPositions()        
         currentSymbols = list(portfolio.positions.keys())
         currentPositions = list(portfolio.positions.values())
         underlyingSymbols = self.getUnderlyings(currentPositions)
