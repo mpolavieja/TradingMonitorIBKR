@@ -9,10 +9,16 @@
   newOrderEvent is NOT triggered when a manual order is submitted. Use onOrderStatus instead
 
 '''
+# For local libraries we need to retrieve the project path from the config file before importing
+import json, sys
+with open("config.json", 'r') as file:
+    configData = json.load(file) 
+sys.path.append(configData["project_path"])
+
+from src.system.dual_logging import LazyLogger
+logger = LazyLogger.getLogger("IbkrMonitor", "./logs")
 
 # Standard libraries
-import sys
-import json
 import datetime
 from math import isnan 
 import threading
@@ -21,30 +27,18 @@ import os
 import signal
 from typing import Dict
 
-
-
-# Local libraries. We need to retrieve the project path from the config file before importing
-def read_config():
-    with open("config.json", 'r') as file:
-        config_data = json.load(file)   
-    return config_data
-
-config_data = read_config()
-sys.path.append(config_data["project_path"])
+# Local libraries
 from gui import ShortAvailabilityChecker, tk
 from ib_async import util, CommissionReport, IB
 from src.brokers.interactive_brokers import Stock, InteractiveBrokers, IbkrTrade, IbkrFill, Ticker
 import src.interfaces.telegram as telegram
 from src.interfaces.email_lib import sendFromGmail
 from src.core.custom_types import BrokerConfig, Position, Portfolio, Instrument
-from src.system.dual_logging import LazyLogger
 from src.data_providers.data_manager import DataManager
 from src.data_providers.ibkr_dataprovider import IbkrDataProvider
 
-
 from portfolio_monitor import PortfolioTracker
 
-logger = LazyLogger.getLogger("IbkrMonitor")
 
 shortableSharesDict: Dict[str, float]  = {}
 # Global variables
