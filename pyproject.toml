@@ -1,0 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "TradingMonitorIBKR"
+version = "0.0.008"
+authors = [
+    { name = "Manuel Polavieja", email = "manuel@polavieja.com" },
+]
+description = "Real Time data and order monitor for IBKR TWS"
+requires-python = ">=3.11"
+
+[tool.setuptools.packages.find]
+where = ["../GekkoProTrader_002/src"]
+include = ["*"]
