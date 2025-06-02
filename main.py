@@ -14,9 +14,10 @@ import json, sys
 with open("config.json", 'r') as file:
     configData = json.load(file) 
 sys.path.append(configData["project_path"])
-
 from src.system.dual_logging import LazyLogger
+
 logger = LazyLogger.getLogger("IbkrMonitor", "./logs")
+logger.info("Starting Trading Monitor...")
 
 # Standard libraries
 import datetime
@@ -29,7 +30,7 @@ from typing import Dict
 
 # Local libraries
 from gui import ShortAvailabilityChecker, tk
-from ib_async import util, CommissionReport, IB
+from ib_async import util, CommissionReport
 from src.brokers.interactive_brokers import Stock, InteractiveBrokers, IbkrTrade, IbkrFill, Ticker
 import src.interfaces.telegram as telegram
 from src.interfaces.email_lib import sendFromGmail
@@ -68,10 +69,10 @@ def reConnect(brokerClient:InteractiveBrokers)-> bool:
             # It is important to fill all the parameters when trying to reconnect!!
             # We first try a fast reconnection, if not successful, then we give enough timeout and 
             # wait seconds to avoid trying to reconnect when reconnecting is already succeeding
-            brokerClient.IbkrRequest.sleep(waitSeconds) 
+            util.sleep(waitSeconds) 
             brokerClient.IbkrRequest.connectSyncSimple(clientId= 0)          
             waitSeconds = RECONNECT_SECONDS
-            brokerClient.IbkrRequest.sleep(0)           
+            util.sleep(waitSeconds)     
             if not brokerClient.connected:
                 logger.error(f'>>Failed to connect to Interactive Brokers. Retrying in {waitSeconds} seconds...')
                 continue                        
@@ -265,21 +266,24 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> boo
     return True
 
 
-def instrumentsToTrack(broker: InteractiveBrokers)-> list[Instrument]:
+def instrumentsToTrack(broker: InteractiveBrokers) -> list[Instrument]:
     if broker.RequestClient is None:
         return []
-    instrumentList: list[Instrument] = []
+    
+    instrumentDict: dict[str, Instrument] = {}
     currentPositions: list[Position] = []
-    portfolio = broker.RequestClient.fetchPositions()
+    portfolio = broker.RequestClient.fetchPositions()    
+   
     for position in portfolio.positions.values():
         currentPositions.append(position)
-        instrumentList.append(position.instrument)    
+        instrumentDict[position.instrument.symbol] = position.instrument
     
     underlyingSymbols = PortfolioTracker.getUnderlyings(currentPositions)
     for symbol in underlyingSymbols:
-        instrumentList.append(Instrument(symbol))
-    
-    return instrumentList
+        if symbol not in instrumentDict:
+            instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
+        
+    return list(instrumentDict.values())
 
 
 def main(): 
@@ -354,5 +358,5 @@ if __name__ == "__main__":
    
 
     main()
-    
+
 

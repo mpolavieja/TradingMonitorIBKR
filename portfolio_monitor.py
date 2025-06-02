@@ -163,12 +163,11 @@ class PortfolioTracker():
 
     @staticmethod
     def getUnderlyings(positions: List[Position]) -> List[str]:
-
-        underlyings: List[str] = []
+        underlyingsSet: set[str] = set()
         for position in positions:
             if position.instrument.underlyingSymbol != "":
-                underlyings.append(position.instrument.underlyingSymbol)
-        return underlyings
+                underlyingsSet.add(position.instrument.underlyingSymbol)
+        return list(underlyingsSet) 
     
     
     def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager) -> None:
@@ -187,7 +186,11 @@ class PortfolioTracker():
             self.create(ibkr, rtData, True)
             return
         
-        portfolio: Portfolio = ibkr.RequestClient.fetchPositions()        
+        portfolio: Portfolio = ibkr.RequestClient.fetchPositions()
+        if not portfolio:
+            logger.info("No positions found in the portfolio. Creating empty portfolio tracker.")
+            return
+        
         currentSymbols = list(portfolio.positions.keys())
         currentPositions = list(portfolio.positions.values())
         underlyingSymbols = self.getUnderlyings(currentPositions)
