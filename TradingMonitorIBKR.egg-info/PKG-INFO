@@ -1,0 +1,8 @@
+Metadata-Version: 2.4
+Name: TradingMonitorIBKR
+Version: 0.0.7
+Summary: Real Time data and order monitor for IBKR TWS
+Author-email: Manuel Polavieja <manuel@polavieja.com>
+Requires-Python: >=3.11
+License-File: LICENSE
+Dynamic: license-file

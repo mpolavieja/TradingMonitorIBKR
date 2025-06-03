@@ -73,7 +73,7 @@ class PortfolioTracker():
             try:
                 result = GoogleSheetsInterface(CREDENTIALS, CONTROL_ESTRATEGIAS_SHEET, "token.pickle")
                 if result.connected:
-                    logger.info(f"Succesfully connected to Google Sheets")
+                    logger.info("Succesfully connected to Google Sheets")
                     return result
                 else:
                     logger.warning(f"Failed to connect to Google Sheets. {retries - i -1} retries left")
@@ -108,8 +108,7 @@ class PortfolioTracker():
                         "Close": closePrice
                 }
         except Exception as e:
-            logger.error(f"Method updateMarkprices. Error updating mark prices: {e}")
-            
+            logger.error(f"Method updateMarkprices. Error updating mark prices: {e}")         
 
   
 
@@ -122,6 +121,12 @@ class PortfolioTracker():
         except Exception as e:
             logger.error(f"Method convertDictToList. Error converting dictionary to list: {e}")
             return []
+        
+
+    def addToInstrumentDictionary(self, listOfInstruments: list[Instrument]) -> None:
+        for instrument in listOfInstruments:
+            self.instrumentDictionary[instrument.symbol] = instrument       
+
 
 
     def create(self, ibkr: InteractiveBrokers, rtData: DataManager, verbose: bool = VERBOSE) -> None:
@@ -170,7 +175,7 @@ class PortfolioTracker():
         return list(underlyingsSet) 
     
     
-    def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager) -> None:
+    def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager, manualTickers: list[str]) -> None:
         """
         Updates the ticker dictionary by adding new items found in the IBKR portfolio
         and removing items that are no longer in the IBKR portfolio.
@@ -195,6 +200,7 @@ class PortfolioTracker():
         currentPositions = list(portfolio.positions.values())
         underlyingSymbols = self.getUnderlyings(currentPositions)
         currentSymbols.extend(underlyingSymbols)
+        currentSymbols.extend(manualTickers)
         
         # Add new items
         for symbol in currentSymbols:
@@ -204,10 +210,12 @@ class PortfolioTracker():
             
         
         # Remove items that are no longer in the portfolio
+        '''
         symbolsToRemove = set(self.tickerDictionary.keys()) - set(currentSymbols)
         for symbol in symbolsToRemove:
             del self.tickerDictionary[symbol]
             del self.portfolioPrices[symbol]
+        '''
 
 
     def update(self, rtData: DataManager, close: bool = False) -> List[List[Any]]:

@@ -48,7 +48,6 @@ CALLBACK_SECONDS: int = 20
 callbackCounter: int = 0
 nanCounterDict: Dict[str, int] = {}
 broker: InteractiveBrokers
-tickers = {}
 portfolioTracker: PortfolioTracker
 
 
@@ -181,25 +180,17 @@ def notifyShortableShares(tickerSet: set[Ticker])-> None:
 
 
 
-def suscribeMarketData()-> None:
-    global tickers
+def suscribeMarketData()-> list[str]:   
     global app
     global broker
-    global ibkrData
+  
     logger.info("Suscribing Market Data...")
     if app is None:
         logger.error("Not possible to suscribe Market Data. Error initializing GUI")
-        return
+        return []
 
-    symbols = app.readSymbols()    
-    try:
-        for symbol in symbols:
-            contract = Stock(symbol, "SMART", "USD")
-            broker.IbkrRequest.tradingClient.reqMarketDataType(3)
-            tickers[symbol] = broker.IbkrRequest.tradingClient.reqMktData(contract, genericTickList= "236")  
-        broker.IbkrRequest.tradingClient.sleep(6)
-    except ConnectionError as e:
-        logger.error(f"Error suscribing Market Data: {e}")
+    return app.readSymbols()    
+    
 
 def initshortableSharesDict(app: ShortAvailabilityChecker)-> None:
     global shortableSharesDict
@@ -209,7 +200,7 @@ def initshortableSharesDict(app: ShortAvailabilityChecker)-> None:
         shortableSharesDict[symbol] = -1 
 
 
-def trackPortfolio(rtData: DataManager, updateSeconds: int = 20)-> None:
+def trackPortfolio(rtData: DataManager, updateSeconds: int = 20, manualTickers: list[str] = [])-> None:
     global portfolioTracker
     global broker
     global dataManager
@@ -218,7 +209,7 @@ def trackPortfolio(rtData: DataManager, updateSeconds: int = 20)-> None:
     if (currentTime - portfolioTracker.lastPortfolioTime).total_seconds() < updateSeconds:
         return
     logger.info(">>refreshing tickers...")
-    portfolioTracker.refreshTickerDictionary(broker, rtData)
+    portfolioTracker.refreshTickerDictionary(broker, rtData, manualTickers)
     logger.info(">>Updating portfolio prices...")
     if currentTime.hour == 22 and currentTime.minute <= 2:
         dataList = portfolioTracker.update(rtData,close = True)
@@ -233,7 +224,7 @@ def trackPortfolio(rtData: DataManager, updateSeconds: int = 20)-> None:
 
 # This is the schedulded callback funcion
 # TODO: refresh symbols on the GUI 
-def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> bool:   
+def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager, manualTickers: list[str])-> bool:   
     
     global app 
     
@@ -251,10 +242,10 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> boo
         brokerClient.connected = reConnect(brokerClient)
         return False
     '''
-    trackPortfolio(rtData)
+    trackPortfolio(rtData, manualTickers= manualTickers)
 
     nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
-    brokerClient.IbkrRequest.tradingClient.schedule(nextRunTime, checkConnection, brokerClient, rtData) 
+    brokerClient.IbkrRequest.tradingClient.schedule(nextRunTime, checkConnection, brokerClient, rtData, manualTickers) 
     
     if app is None:
         logger.error("Error checking connection. GUI (app) not initialized")
@@ -266,7 +257,8 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager)-> boo
     return True
 
 
-def instrumentsToTrack(broker: InteractiveBrokers) -> list[Instrument]:
+def instrumentsToTrack(broker: InteractiveBrokers, manualTickers: list[str]) -> list[Instrument]:    
+    
     if broker.RequestClient is None:
         return []
     
@@ -282,7 +274,11 @@ def instrumentsToTrack(broker: InteractiveBrokers) -> list[Instrument]:
     for symbol in underlyingSymbols:
         if symbol not in instrumentDict:
             instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
-        
+
+    for symbol in manualTickers:
+        if symbol not in instrumentDict:
+            instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
+
     return list(instrumentDict.values())
 
 
@@ -303,16 +299,6 @@ def main():
     if broker.RequestClient is None:
         print("Error initializing Interactive Brokers")
         return
-
-
-    dataManager= DataManager()
-    ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
-    dataManager.addDataProvider(ibkrData)
-  
-    instrumentList = instrumentsToTrack(broker)
-    dataManager.start(instrumentList)
-
-    portfolioTracker = PortfolioTracker()
    
     broker.EventClient.eventClient.execDetailsEvent += onExecDetails            #type: ignore attribute not declared in broker abstract class
     broker.EventClient.eventClient.disconnectedEvent += onDisconnected          #type: ignore attribute not declared in broker abstract class
@@ -328,10 +314,18 @@ def main():
 
     broker.RequestClient.sleepIBKR(2)
 
-    suscribeMarketData()
+    manualTickers= suscribeMarketData()    
+
+    dataManager= DataManager()
+    ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
+    dataManager.addDataProvider(ibkrData)
+    portfolioTracker = PortfolioTracker()    
+    instrumentList = instrumentsToTrack(broker, manualTickers)
+    portfolioTracker.addToInstrumentDictionary(instrumentList)
+    dataManager.start(instrumentList)
 
     nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
-    broker.RequestClient.tradingClient.schedule(nextRunTime, checkConnection, broker, dataManager)
+    broker.RequestClient.tradingClient.schedule(nextRunTime, checkConnection, broker, dataManager, manualTickers)
     broker.RequestClient.run()
 
 
