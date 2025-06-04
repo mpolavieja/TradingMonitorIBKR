@@ -200,7 +200,7 @@ def initshortableSharesDict(app: ShortAvailabilityChecker)-> None:
         shortableSharesDict[symbol] = -1 
 
 
-def trackPortfolio(rtData: DataManager, updateSeconds: int = 20, manualTickers: list[str] = [])-> None:
+def trackPortfolio(rtData: DataManager, updateSeconds: int = 20, instrumentList: list[Instrument] = [])-> None:
     global portfolioTracker
     global broker
     global dataManager
@@ -209,7 +209,7 @@ def trackPortfolio(rtData: DataManager, updateSeconds: int = 20, manualTickers: 
     if (currentTime - portfolioTracker.lastPortfolioTime).total_seconds() < updateSeconds:
         return
     logger.info(">>refreshing tickers...")
-    portfolioTracker.refreshTickerDictionary(broker, rtData, manualTickers)
+    portfolioTracker.refreshTickerDictionary(broker, rtData, instrumentList)
     logger.info(">>Updating portfolio prices...")
     if currentTime.hour == 22 and currentTime.minute <= 2:
         dataList = portfolioTracker.update(rtData,close = True)
@@ -224,7 +224,7 @@ def trackPortfolio(rtData: DataManager, updateSeconds: int = 20, manualTickers: 
 
 # This is the schedulded callback funcion
 # TODO: refresh symbols on the GUI 
-def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager, manualTickers: list[str])-> bool:   
+def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager, instrumentList: list[Instrument])-> bool:   
     
     global app 
     
@@ -242,11 +242,15 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager, manua
         brokerClient.connected = reConnect(brokerClient)
         return False
     '''
-    trackPortfolio(rtData, manualTickers= manualTickers)
+    manualTickers = suscribeMarketData()
+    instrumentList = instrumentsToTrack(brokerClient, manualTickers)
+    portfolioTracker.addToInstrumentDictionary(instrumentList)
 
-    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
-    brokerClient.IbkrRequest.tradingClient.schedule(nextRunTime, checkConnection, brokerClient, rtData, manualTickers) 
-    
+    trackPortfolio(rtData, instrumentList=instrumentList)
+
+    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)
+    brokerClient.IbkrRequest.tradingClient.schedule(nextRunTime, checkConnection, brokerClient, rtData, instrumentList)
+
     if app is None:
         logger.error("Error checking connection. GUI (app) not initialized")
         return False
@@ -325,7 +329,7 @@ def main():
     dataManager.start(instrumentList)
 
     nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)  
-    broker.RequestClient.tradingClient.schedule(nextRunTime, checkConnection, broker, dataManager, manualTickers)
+    broker.RequestClient.tradingClient.schedule(nextRunTime, checkConnection, broker, dataManager, instrumentList)
     broker.RequestClient.run()
 
 

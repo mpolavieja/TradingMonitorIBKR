@@ -175,7 +175,7 @@ class PortfolioTracker():
         return list(underlyingsSet) 
     
     
-    def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager, manualTickers: list[str]) -> None:
+    def refreshTickerDictionary(self, ibkr: InteractiveBrokers, rtData: DataManager, instrumentList: list[Instrument]) -> None:
         """
         Updates the ticker dictionary by adding new items found in the IBKR portfolio
         and removing items that are no longer in the IBKR portfolio.
@@ -200,11 +200,13 @@ class PortfolioTracker():
         currentPositions = list(portfolio.positions.values())
         underlyingSymbols = self.getUnderlyings(currentPositions)
         currentSymbols.extend(underlyingSymbols)
-        currentSymbols.extend(manualTickers)
-        
+        for instrument in instrumentList:
+            currentSymbols.append(instrument.symbol)
+
         # Add new items
         for symbol in currentSymbols:
             if symbol not in self.tickerDictionary:
+                rtData.addInstrument(Instrument(symbol=symbol, exchange="SMART"))            
                 self.tickerDictionary[symbol] = rtData.providers["IBKR"].getTicker(symbol)
                 self.portfolioPrices[symbol] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
             
