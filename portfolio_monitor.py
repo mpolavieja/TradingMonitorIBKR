@@ -142,24 +142,25 @@ class PortfolioTracker():
             if ibkr.RequestClient is None:
                 logger.error("Error accessing broker")
                 return 
-            positions = ibkr.RequestClient.fetchPositionsOLD()   
+            positions = ibkr.RequestClient.fetchPositions()   
             
             if not positions:
-                logger.info("No positions found in the portfolio. Creating empty portfolio tracker.")
+                logger.info(">>No positions found in the portfolio. Creating empty portfolio tracker.")
                 return
 
             if verbose:
                 logger.info("Fetching positions to create  portfolio tracker")
                 
-            for position in positions:
+            for position in positions.positions.values():
                 rtData.addInstrument(position.instrument)
                 self.instrumentDictionary[position.symbol] = position.instrument
                 self.tickerDictionary[position.symbol] = rtData.providers["IBKR"].getTicker(position.symbol)
                 self.portfolioPrices[position.symbol] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
-                if position.info["underlying"] != "" and position.instrument.instrumentType == "OPT":
-                    self.tickerDictionary[position.info["underlying"]] = rtData.providers["IBKR"].getTicker(position.symbol)
-                    self.portfolioPrices[position.info["underlying"]] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
-                    self.instrumentDictionary[position.info["underlying"]] = Instrument(symbol= position.info["underlying"], exchange= position.info["underlyingExchange"])                
+            underlyingSymbols = self.getUnderlyings(list(positions.positions.values()))
+            for underlyingSymbol in underlyingSymbols:                
+                self.tickerDictionary[underlyingSymbol] = rtData.providers["IBKR"].getTicker(underlyingSymbol)
+                self.portfolioPrices[underlyingSymbol] = {"markPrice": 0, "priceType": "Mark", "time": "", "Close": 0}
+                self.instrumentDictionary[underlyingSymbol] = Instrument(symbol= underlyingSymbol, exchange= "SMART")                
             logger.info ("Portfolio tracker created. Waiting for tickers to load...")
             ibkr.RequestClient.sleepIBKR(7)    
         except asyncio.TimeoutError as e:          

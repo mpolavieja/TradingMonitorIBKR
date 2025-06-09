@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "TradingMonitorIBKR"
-version = "0.0.010"
+version = "0.0.011"
 authors = [
     { name = "Manuel Polavieja", email = "manuel@polavieja.com" },
 ]
