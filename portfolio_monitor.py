@@ -28,6 +28,7 @@ from src.interfaces.telegram import send_to_telegram
 
 
 CONTROL_ESTRATEGIAS_SHEET = "1-601S7QrpeVNVZP2dwSbOE-7Jrr4x09UWm4UDtKrob4"
+FICHAS_SHEET = "18ixMxPTqiyRoB0g2lEQ3BdgO_QMB4I8LzFwDuVEdhWs"
 CREDENTIALS = "credentials_Google_NF.json"
 VERBOSE  = True
 
@@ -65,22 +66,10 @@ class PortfolioTracker():
         self.instrumentDictionary: Dict[str, Instrument] = {}
         self.portfolioPrices:  Dict[str, Dict[str, Any]] = {}
         self.controlEstrategias = connectToGoogleSheets(retries = 3, delay = 1, sheetToTest = "Maestro", credentials = CREDENTIALS, workingDocument = CONTROL_ESTRATEGIAS_SHEET, tokenPath = "token.pickle")
+        self.fichas = connectToGoogleSheets(retries = 3, delay = 1, sheetToTest = "Maestro", credentials = CREDENTIALS, workingDocument = FICHAS_SHEET, tokenPath = "token.pickle")
         self.lastPortfolioTime = datetime.datetime.min
         
-    def connectGoogleSheets(self, retries: int = 3) -> GoogleSheetsInterface:
-        logger.info(f"Trying to connect to Google Sheets. {retries} retries left")
-        for i in range(retries):
-            try:
-                result = GoogleSheetsInterface(CREDENTIALS, CONTROL_ESTRATEGIAS_SHEET, "token.pickle")
-                if result.connected:
-                    logger.info("Succesfully connected to Google Sheets")
-                    return result
-                else:
-                    logger.warning(f"Failed to connect to Google Sheets. {retries - i -1} retries left")
-            except Exception as e:
-                logger.error(f"Method connectGoogleSheets. Error connecting to Google Sheets: {e}")
-        raise Exception("Error connecting to Google Sheets")
-    
+
     
     def updateMarkPrices(self, rtData: DataManager, close: bool = False) -> None:                    
         try:           
@@ -243,6 +232,8 @@ class PortfolioTracker():
                 dataList (List[List[Any]]): A list of lists containing the portfolio data.
         """
         self.controlEstrategias.writeDataToSheet(sheet_name= "Maestro", data= dataList, start_column= "G", start_row  = 1)
+        self.fichas.writeDataToSheet(sheet_name= "Maestro", data= dataList, start_column= "G", start_row  = 1)
+
 
 def test() -> None:
     portfolioTracker = PortfolioTracker()
