@@ -43,7 +43,7 @@ from portfolio_monitor import PortfolioTracker
 
 shortableSharesDict: Dict[str, float]  = {}
 # Global variables
-RECONNECT_SECONDS: int = 50
+RECONNECT_SECONDS: int = 300            # Time to wait before reconnect. 300 seconds enough to let GekkoProTrader firts on clientId = 0
 CALLBACK_SECONDS: int = 20
 callbackCounter: int = 0
 nanCounterDict: Dict[str, int] = {}

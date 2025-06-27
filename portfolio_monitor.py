@@ -27,7 +27,7 @@ from src.core.custom_types import BrokerConfig, Instrument, Position, Portfolio
 from src.interfaces.telegram import send_to_telegram
 
 
-CONTROL_ESTRATEGIAS_SHEET = "1OlZV7I92GORFKWB3kUe3UK3rf3FGuyfnqj6oCLorX2Y"
+CONTROL_ESTRATEGIAS_SHEET = "1-601S7QrpeVNVZP2dwSbOE-7Jrr4x09UWm4UDtKrob4"
 CREDENTIALS = "credentials_Google_NF.json"
 VERBOSE  = True
 
