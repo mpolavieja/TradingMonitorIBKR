@@ -32,6 +32,7 @@ from typing import Dict
 from gui import ShortAvailabilityChecker, tk
 from ib_async import util, CommissionReport
 from src.brokers.interactive_brokers import Stock, InteractiveBrokers, IbkrTrade, IbkrFill, Ticker
+from src.brokers.type_conversions import parseOptionSymbol
 import src.interfaces.telegram as telegram
 from src.interfaces.email_lib import sendFromGmail
 from src.core.custom_types import BrokerConfig, Position, Portfolio, Instrument
@@ -261,7 +262,7 @@ def checkConnection(brokerClient: InteractiveBrokers, rtData: DataManager, instr
     return True
 
 
-def instrumentsToTrack(broker: InteractiveBrokers, manualTickers: list[str]) -> list[Instrument]:    
+def instrumentsToTrack(broker: InteractiveBrokers, manualTickers: list[str] ) -> list[Instrument]:    
     
     if broker.RequestClient is None:
         return []
@@ -281,7 +282,12 @@ def instrumentsToTrack(broker: InteractiveBrokers, manualTickers: list[str]) -> 
 
     for symbol in manualTickers:
         if symbol not in instrumentDict:
-            instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
+            if len(symbol) > 6:
+                underlying, expiry, right, strike = parseOptionSymbol(symbol)
+                instrumentDict[symbol] = Instrument(symbol = underlying, futureLocalSymbol=symbol, instrumentType ="OPT", 
+                                                    strike= strike, right=right, futureLastDate=expiry, futureMultiplier=100)
+            else:
+                instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
 
     return list(instrumentDict.values())
 
