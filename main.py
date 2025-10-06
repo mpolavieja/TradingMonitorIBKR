@@ -284,8 +284,8 @@ def instrumentsToTrack(broker: InteractiveBrokers, manualTickers: list[str] ) ->
         if symbol not in instrumentDict:
             if len(symbol) > 6:
                 underlying, expiry, right, strike = parseOptionSymbol(symbol)
-                instrumentDict[symbol] = Instrument(symbol = underlying, futureLocalSymbol=symbol, instrumentType ="OPT", 
-                                                    strike= strike, right=right, futureLastDate=expiry, futureMultiplier=100)
+                instrumentDict[symbol] = Instrument(symbol = underlying, localSymbol=symbol, instrumentType ="OPT", 
+                                                    strike= strike, right=right, lastDate=expiry, multiplier=100)
             else:
                 instrumentDict[symbol] = Instrument(symbol=symbol, exchange="SMART")
 
