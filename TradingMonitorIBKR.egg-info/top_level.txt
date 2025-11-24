@@ -1,8 +1,0 @@
-brokers
-config
-core
-data
-data_providers
-interfaces
-strategies
-system
