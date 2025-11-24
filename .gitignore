@@ -10,6 +10,20 @@ symbols.json
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+
+# build files and dist
+build/
+*.egg-info/
+dist/
+
+# Virtual environments
+venv/
+.venv/
+env/
+ENV/
+virtualenv/
+.virtualenv/
 
 # log files
 logs/

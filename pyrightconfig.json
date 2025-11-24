@@ -1,0 +1,30 @@
+{
+    "include": [
+        "."
+    ],
+    "extraPaths": [
+        "r:/New Frontier/Proyectos Programacion (APIs, Fronts, Bots, Etc)/GekkoProTrader_002",
+        "r:/New Frontier/Proyectos Programacion (APIs, Fronts, Bots, Etc)/GekkoProTrader_002/src",
+        "../GekkoProTrader_002",
+        "../GekkoProTrader_002/src",
+        "."
+    ],
+    "executionEnvironments": [
+        {
+            "root": ".",
+            "pythonVersion": "3.11",
+            "extraPaths": [
+                "r:/New Frontier/Proyectos Programacion (APIs, Fronts, Bots, Etc)/GekkoProTrader_002",
+                "r:/New Frontier/Proyectos Programacion (APIs, Fronts, Bots, Etc)/GekkoProTrader_002/src",
+                "../GekkoProTrader_002",
+                "../GekkoProTrader_002/src",
+                "."
+            ]
+        }
+    ],
+    "typeCheckingMode": "basic",
+    "useLibraryCodeForTypes": true,
+    "reportMissingImports": "warning",
+    "reportMissingTypeStubs": false,
+    "stubPath": ""
+}

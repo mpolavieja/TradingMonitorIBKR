@@ -1,5 +1,18 @@
 {
     "python.analysis.extraPaths": [
-        "R:/New Frontier/Proyectos Programacion (APIs, Fronts, Bots, Etc)/GekkoProTrader_002"
-    ]
+        "${workspaceFolder}/../GekkoProTrader_002",
+        "${workspaceFolder}/../GekkoProTrader_002/src",
+        "${workspaceFolder}"
+    ],
+    "python.autoComplete.extraPaths": [
+        "${workspaceFolder}/../GekkoProTrader_002",
+        "${workspaceFolder}/../GekkoProTrader_002/src",
+        "${workspaceFolder}"
+    ],
+    "python.languageServer": "Pylance",
+    "python.analysis.diagnosticMode": "workspace",
+    "python.analysis.typeCheckingMode": "basic",
+    "python.analysis.useLibraryCodeForTypes": true,
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.indexing": true
 }
