@@ -87,7 +87,7 @@ class PortfolioTracker:
             credentials=CREDENTIALS,
             workingDocument=FICHAS_SHEET,
             tokenPath="token.pickle",
-            forceOauth=True,        
+            forceOauth=True,
         )
         self.lastPortfolioTime = datetime.datetime.min
 

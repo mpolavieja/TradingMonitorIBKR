@@ -12,7 +12,6 @@ newOrderEvent is NOT triggered when a manual order is submitted. Use onOrderStat
 
 # For local libraries we need to retrieve the project path from the config file before importing
 
-print("[DEBUG] main.py: inicio del script")
 import json, sys
 
 with open("config.json", "r") as file:
@@ -21,9 +20,7 @@ sys.path.append(configData["project_path"])
 from src.system.dual_logging import LazyLogger
 
 logger = LazyLogger.getLogger("IbkrMonitor", "./logs")
-print("[DEBUG] main.py: logger inicializado")
 logger.info("Starting Trading Monitor...")
-print("[DEBUG] main.py: después de logger.info")
 
 # Standard libraries
 import datetime
@@ -380,9 +377,10 @@ async def main():
         util.sleep(1)
 
         port = 7496
-        ibkrConfig = BrokerConfig(name="IBKR", port=port, clientID=0, host="127.0.0.1")
+        # Problems connectin to clientID = 0 in VPS Production. Changing to 1.
+        ibkrConfig = BrokerConfig(name="IBKR", port=port, clientID=1, host="127.0.0.1")
         broker = InteractiveBrokers.initWithoutRiskManager(ibkrConfig)
-        broker.IbkrRequest.connectSyncSimple("127.0.0.1", port, 0)
+        broker.IbkrRequest.connectSyncSimple("127.0.0.1", port, 1)
         if broker.RequestClient is None:
             print("Error initializing Interactive Brokers")
             return
