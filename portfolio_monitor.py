@@ -2,9 +2,11 @@ import datetime
 import math
 from typing import Dict, Any, List
 from json import load
+
 import sys
 import asyncio
 import logging
+import os
 
 
 logger = logging.getLogger("IbkrMonitor")
@@ -20,7 +22,7 @@ def read_config() -> Dict[str, str]:
 config_data = read_config()
 sys.path.append(config_data["project_path"])
 
-from src.interfaces.google_sheets_interface import (
+from src.adapters.google_sheets_interface import (
     GoogleSheetsInterface,
     connectToGoogleSheets,
 )
@@ -32,7 +34,8 @@ from src.domain.instrument import createInstrument, Instrument
 
 CONTROL_ESTRATEGIAS_SHEET = "1-601S7QrpeVNVZP2dwSbOE-7Jrr4x09UWm4UDtKrob4"
 FICHAS_SHEET = "18ixMxPTqiyRoB0g2lEQ3BdgO_QMB4I8LzFwDuVEdhWs"
-CREDENTIALS = "credentials_Google_NF.json"
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+CREDENTIALS = os.path.join(CURRENT_DIR, "credentials_Google_NF.json")
 VERBOSE = True
 
 
@@ -75,6 +78,7 @@ class PortfolioTracker:
             credentials=CREDENTIALS,
             workingDocument=CONTROL_ESTRATEGIAS_SHEET,
             tokenPath="token.pickle",
+            forceOauth=True,
         )
         self.fichas = connectToGoogleSheets(
             retries=3,
@@ -83,6 +87,7 @@ class PortfolioTracker:
             credentials=CREDENTIALS,
             workingDocument=FICHAS_SHEET,
             tokenPath="token.pickle",
+            forceOauth=True,        
         )
         self.lastPortfolioTime = datetime.datetime.min
 
@@ -184,7 +189,7 @@ class PortfolioTracker:
         for instrument in listOfInstruments:
             self.instrumentDictionary[instrument.symbol] = instrument
 
-    def create(
+    async def create(
         self, ibkr: InteractiveBrokers, rtData: DataManager, verbose: bool = VERBOSE
     ) -> None:
         """
@@ -199,7 +204,7 @@ class PortfolioTracker:
             if ibkr.RequestClient is None:
                 logger.error("Error accessing broker")
                 return
-            positions = ibkr.RequestClient.fetchPositions()
+            positions = await ibkr.RequestClient.fetchPositions()
 
             if not positions:
                 logger.info(
@@ -213,9 +218,7 @@ class PortfolioTracker:
             for position in positions.positions.values():
                 rtData.addInstrument(position.instrument)
                 self.instrumentDictionary[position.symbol] = position.instrument
-                self.tickerDictionary[position.symbol] = rtData.providers[
-                    "IBKR"
-                ].getTicker(position.symbol)
+                self.tickerDictionary[position.symbol] = rtData.providers["IBKR"].getTicker(position.symbol)
                 self.portfolioPrices[position.symbol] = {
                     "markPrice": 0,
                     "priceType": "Mark",
@@ -224,9 +227,7 @@ class PortfolioTracker:
                 }
             underlyingSymbols = self.getUnderlyings(list(positions.positions.values()))
             for underlyingSymbol in underlyingSymbols:
-                self.tickerDictionary[underlyingSymbol] = rtData.providers[
-                    "IBKR"
-                ].getTicker(underlyingSymbol)
+                self.tickerDictionary[underlyingSymbol] = rtData.providers["IBKR"].getTicker(underlyingSymbol)
                 self.portfolioPrices[underlyingSymbol] = {
                     "markPrice": 0,
                     "priceType": "Mark",
@@ -240,7 +241,7 @@ class PortfolioTracker:
                     currency="USD",
                 )
             logger.info("Portfolio tracker created. Waiting for tickers to load...")
-            ibkr.RequestClient.sleepIBKR(7)
+            await ibkr.RequestClient.sleep(7)
         except asyncio.TimeoutError as e:
             msg = f"Method PortfolioTracker.create. Timeout error: {e}"
             logger.error(msg)
@@ -253,7 +254,7 @@ class PortfolioTracker:
                 underlyingsSet.add(position.instrument.underlyingSymbol)
         return list(underlyingsSet)
 
-    def refreshTickerDictionary(
+    async def refreshTickerDictionary(
         self,
         ibkr: InteractiveBrokers,
         rtData: DataManager,
@@ -271,10 +272,10 @@ class PortfolioTracker:
             return
 
         if not self.tickerDictionary:
-            self.create(ibkr, rtData, True)
+            await self.create(ibkr, rtData, True)
             return
 
-        portfolio: Portfolio = ibkr.RequestClient.fetchPositions()
+        portfolio: Portfolio = await ibkr.RequestClient.fetchPositions()
         if not portfolio:
             logger.info(
                 "No positions found in the portfolio. Creating empty portfolio tracker."
@@ -299,9 +300,7 @@ class PortfolioTracker:
                         currency="USD",
                     )
                 )
-                self.tickerDictionary[symbol] = rtData.providers["IBKR"].getTicker(
-                    symbol
-                )
+                self.tickerDictionary[symbol] = rtData.providers["IBKR"].getTicker(symbol)
                 self.portfolioPrices[symbol] = {
                     "markPrice": 0,
                     "priceType": "Mark",

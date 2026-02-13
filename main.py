@@ -11,6 +11,8 @@ newOrderEvent is NOT triggered when a manual order is submitted. Use onOrderStat
 """
 
 # For local libraries we need to retrieve the project path from the config file before importing
+
+print("[DEBUG] main.py: inicio del script")
 import json, sys
 
 with open("config.json", "r") as file:
@@ -19,7 +21,9 @@ sys.path.append(configData["project_path"])
 from src.system.dual_logging import LazyLogger
 
 logger = LazyLogger.getLogger("IbkrMonitor", "./logs")
+print("[DEBUG] main.py: logger inicializado")
 logger.info("Starting Trading Monitor...")
+print("[DEBUG] main.py: después de logger.info")
 
 # Standard libraries
 import datetime
@@ -41,8 +45,8 @@ from src.brokers.interactive_brokers import (
     Ticker,
 )
 from src.system.options_utils import parseOptionSymbol
-import src.interfaces.telegram as telegram
-from src.interfaces.email_lib import sendFromGmail
+import src.adapters.telegram as telegram
+from src.adapters.email_lib import sendFromGmail
 from src.domain.custom_types import BrokerConfig, Position, Portfolio
 from src.domain.instrument import createInstrument, Instrument
 from src.data_providers.data_manager import DataManager
@@ -252,7 +256,7 @@ def initshortableSharesDict(app: ShortAvailabilityChecker) -> None:
         shortableSharesDict[symbol] = -1
 
 
-def trackPortfolio(
+async def trackPortfolio(
     rtData: DataManager, updateSeconds: int = 20, instrumentList: list[Instrument] = []
 ) -> None:
     global portfolioTracker
@@ -265,7 +269,7 @@ def trackPortfolio(
     ).total_seconds() < updateSeconds:
         return
     logger.info(">>refreshing tickers...")
-    portfolioTracker.refreshTickerDictionary(broker, rtData, instrumentList)
+    await portfolioTracker.refreshTickerDictionary(broker, rtData, instrumentList)
     logger.info(">>Updating portfolio prices...")
     if currentTime.hour == 22 and currentTime.minute <= 2:
         dataList = portfolioTracker.update(rtData, close=True)
@@ -279,7 +283,7 @@ def trackPortfolio(
 
 # This is the schedulded callback funcion
 # TODO: refresh symbols on the GUI
-def checkConnection(
+async def checkConnection(
     brokerClient: InteractiveBrokers,
     rtData: DataManager,
     instrumentList: list[Instrument],
@@ -301,15 +305,12 @@ def checkConnection(
         return False
     """
     manualTickers = suscribeMarketData()
-    instrumentList = instrumentsToTrack(brokerClient, manualTickers)
+    instrumentList = await instrumentsToTrack(brokerClient, manualTickers)
     portfolioTracker.addToInstrumentDictionary(instrumentList)
 
-    trackPortfolio(rtData, instrumentList=instrumentList)
+    await trackPortfolio(rtData, instrumentList=instrumentList)
 
-    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)
-    brokerClient.IbkrRequest.tradingClient.schedule(
-        nextRunTime, checkConnection, brokerClient, rtData, instrumentList
-    )
+    # Eliminado el scheduler antiguo que llamaba a checkConnection sin await
 
     if app is None:
         logger.error("Error checking connection. GUI (app) not initialized")
@@ -321,7 +322,7 @@ def checkConnection(
     return True
 
 
-def instrumentsToTrack(
+async def instrumentsToTrack(
     broker: InteractiveBrokers, manualTickers: list[str]
 ) -> list[Instrument]:
     if broker.RequestClient is None:
@@ -329,7 +330,7 @@ def instrumentsToTrack(
 
     instrumentDict: dict[str, Instrument] = {}
     currentPositions: list[Position] = []
-    portfolio = broker.RequestClient.fetchPositions()
+    portfolio = await broker.RequestClient.fetchPositions()
 
     for position in portfolio.positions.values():
         currentPositions.append(position)
@@ -369,56 +370,67 @@ def instrumentsToTrack(
     return list(instrumentDict.values())
 
 
-def main():
-    global broker, portfolioTracker, app, ibkrData, dataManager
+async def main():
+    try:
+        global broker, portfolioTracker, app, ibkrData, dataManager
 
-    print("")
+        print("")
+        logger.info("Starting IBKR Monitor....")
+        util.patchAsyncio()
+        util.sleep(1)
 
-    logger.info("Starting IBKR Monitor....")
+        port = 7496
+        ibkrConfig = BrokerConfig(name="IBKR", port=port, clientID=0, host="127.0.0.1")
+        broker = InteractiveBrokers.initWithoutRiskManager(ibkrConfig)
+        broker.IbkrRequest.connectSyncSimple("127.0.0.1", port, 0)
+        if broker.RequestClient is None:
+            print("Error initializing Interactive Brokers")
+            return
 
-    # The following line is mandatory in order to be able to automatically reconnect
-    util.patchAsyncio()
-    util.sleep(1)
+        broker.EventClient.eventClient.execDetailsEvent += onExecDetails  # type: ignore attribute not declared in broker abstract class
+        broker.EventClient.eventClient.disconnectedEvent += onDisconnected  # type: ignore attribute not declared in broker abstract class
+        broker.EventClient.eventClient.orderStatusEvent += onOrderStatus  # type: ignore attribute not declared in broker abstract class
+        broker.EventClient.eventClient.commissionReportEvent += onCommission  # type: ignore attribute not declared in broker abstract class
+        # broker.EventClient.eventClient.pendingTickersEvent += notifyShortableShares #type: ignore attribute not declared in broker abstract class
 
-    port = 7496
-    ibkrConfig = BrokerConfig(name="IBKR", port=port, clientID=0, host="127.0.0.1")
-    broker = InteractiveBrokers.initWithoutRiskManager(ibkrConfig)
-    broker.IbkrRequest.connectSyncSimple("127.0.0.1", port, 0)
-    if broker.RequestClient is None:
-        print("Error initializing Interactive Brokers")
-        return
+        # Run the GUI in a separate thread
+        logger.info("Starting GUI....")
+        gui_thread = threading.Thread(target=main_gui, daemon=True)
+        gui_thread.start()
 
-    broker.EventClient.eventClient.execDetailsEvent += onExecDetails  # type: ignore attribute not declared in broker abstract class
-    broker.EventClient.eventClient.disconnectedEvent += onDisconnected  # type: ignore attribute not declared in broker abstract class
-    broker.EventClient.eventClient.orderStatusEvent += onOrderStatus  # type: ignore attribute not declared in broker abstract class
-    broker.EventClient.eventClient.commissionReportEvent += onCommission  # type: ignore attribute not declared in broker abstract class
-    # broker.EventClient.eventClient.pendingTickersEvent += notifyShortableShares #type: ignore attribute not declared in broker abstract class
+        portfolioTracker = PortfolioTracker()
+        await broker.RequestClient.sleep(2)
 
-    # Run the GUI in a separate thread
-    logger.info("Starting GUI....")
+        manualTickers = suscribeMarketData()
 
-    gui_thread = threading.Thread(target=main_gui, daemon=True)
-    gui_thread.start()
+        dataManager = DataManager()
+        ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
+        dataManager.addDataProvider(ibkrData)
 
-    portfolioTracker = PortfolioTracker()
-    broker.RequestClient.sleepIBKR(2)
+        instrumentList = await instrumentsToTrack(broker, manualTickers)
+        portfolioTracker.addToInstrumentDictionary(instrumentList)
+        await dataManager.start(instrumentList)
 
-    manualTickers = suscribeMarketData()
+        # Lanzar el loop de IBKR como tarea asíncrona
+        loop = asyncio.get_running_loop()
+        ibkr_task = loop.run_in_executor(None, broker.RequestClient.run)
 
-    dataManager = DataManager()
-    ibkrData = IbkrDataProvider(broker.RequestClient.tradingClient)
-    dataManager.addDataProvider(ibkrData)
+        # Scheduling asíncrono propio para checkConnection
+        async def periodic_check():
+            while True:
+                try:
+                    await checkConnection(broker, dataManager, instrumentList)
+                except Exception as e:
+                    logger.error(f"Error in periodic checkConnection: {e}")
+                await asyncio.sleep(5)
 
-    instrumentList = instrumentsToTrack(broker, manualTickers)
-    portfolioTracker.addToInstrumentDictionary(instrumentList)
-    dataManager.start(instrumentList)
+        check_task = asyncio.create_task(periodic_check())
 
-    nextRunTime = datetime.datetime.now() + datetime.timedelta(seconds=5)
-    broker.RequestClient.tradingClient.schedule(
-        nextRunTime, checkConnection, broker, dataManager, instrumentList
-    )
-    broker.RequestClient.run()
-
+        # Mantener el loop vivo mientras la GUI esté abierta o IBKR siga corriendo
+        await asyncio.gather(ibkr_task, check_task)
+    except Exception as e:
+        logger.error(f"Error in main: {e}")
+        print(f"Error in main: {e}")
 
 def main_gui():
     global app, broker
@@ -440,4 +452,4 @@ def main_gui():
 if __name__ == "__main__":
     app = None
 
-    main()
+    asyncio.run(main())
